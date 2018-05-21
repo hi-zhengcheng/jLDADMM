@@ -1,5 +1,6 @@
 import models.GibbsSamplingDMM;
 import models.GibbsSamplingDMM_Inf;
+import models.GibbsSamplingDMM_Inf_Single;
 import models.GibbsSamplingLDA;
 import models.GibbsSamplingLDA_Inf;
 
@@ -54,6 +55,12 @@ public class jLDADMM
 					cmdArgs.paras, cmdArgs.corpus, cmdArgs.niters,
 					cmdArgs.twords, cmdArgs.expModelName, cmdArgs.savestep);
 				dmm.inference();
+			}
+			else if (cmdArgs.model.equals("DMM_Single")) {
+				GibbsSamplingDMM_Inf_Single dmmSingle = new GibbsSamplingDMM_Inf_Single(
+						cmdArgs.paras, cmdArgs.corpus, cmdArgs.niters,
+						cmdArgs.twords, cmdArgs.expModelName, cmdArgs.savestep);
+				dmmSingle.inferenceAllDoc();
 			}
 			else if (cmdArgs.model.equals("Eval")) {
 				ClusteringEval.evaluate(cmdArgs.labelFile, cmdArgs.dir,
