@@ -2,6 +2,7 @@ package models;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -56,6 +57,9 @@ public class GibbsSamplingDMM_Inf_Single {
 	// the first index to the i^{th}-index in the document
 	// Example: given a document of "a a b a b c d c". We have: 1 2 1 3 2 1 1 2
 	public List<List<Integer>> occurenceToIndexCount;
+	
+	// Save every inference iteration result
+	public List<List<Integer>> inferenceIterationResult;
 
 	public String expName = "DMMinf";
 	public String orgExpName = "DMMinf";
@@ -150,6 +154,11 @@ public class GibbsSamplingDMM_Inf_Single {
 
 		alphaSum = numTopics * alpha;
 		betaSum = vocabularySize * beta;
+		
+		inferenceIterationResult = new ArrayList<List<Integer>>();
+		for (int dIndex = 0; dIndex < numDocuments; dIndex++) {
+			inferenceIterationResult.add(new ArrayList<Integer>());
+		}
 
 		System.out.println("Corpus size: " + numDocuments + " docs, "
 			+ numWordsInCorpus + " words");
@@ -161,8 +170,9 @@ public class GibbsSamplingDMM_Inf_Single {
 		System.out.println("Number of top topical words: " + topWords);
 
 		initialize();
+		cleanFiles();
 	}
-
+	
 	private HashMap<String, String> parseTrainingParasFile(
 		String pathToTrainingParasFile)
 		throws Exception
@@ -247,6 +257,7 @@ public class GibbsSamplingDMM_Inf_Single {
 	public void initialize() 
 	{
 		topicAssignments = new ArrayList<Integer>();
+		topicAssignments.add(0);
 	}
 	
 	public void sampleInSingleIteration(int dIndex)
@@ -284,6 +295,8 @@ public class GibbsSamplingDMM_Inf_Single {
 		}
 		// Update topic assignments
 		topicAssignments.set(0, topic);
+		
+		inferenceIterationResult.get(dIndex).add(topic);
 	}
 
 	public void writeParameters()
@@ -336,7 +349,7 @@ public class GibbsSamplingDMM_Inf_Single {
 		throws IOException
 	{
 		BufferedWriter writer = new BufferedWriter(new FileWriter(folderPath
-			+ expName + ".topicAssignments"));
+			+ expName + ".topicAssignments", true));
 		int docSize = corpus.get(dIndex).size();
 		int topic = topicAssignments.get(0);
 		for (int wIndex = 0; wIndex < docSize; wIndex++) {
@@ -350,7 +363,7 @@ public class GibbsSamplingDMM_Inf_Single {
 		throws IOException
 	{
 		BufferedWriter writer = new BufferedWriter(new FileWriter(folderPath
-			+ expName + ".topWords"));
+			+ expName + ".topWords", true));
 
 		for (int tIndex = 0; tIndex < numTopics; tIndex++) {
 			writer.write("Topic" + new Integer(tIndex) + ":");
@@ -385,7 +398,7 @@ public class GibbsSamplingDMM_Inf_Single {
 		throws IOException
 	{
 		BufferedWriter writer = new BufferedWriter(new FileWriter(folderPath
-			+ expName + ".phi"));
+			+ expName + ".phi", true));
 		for (int i = 0; i < numTopics; i++) {
 			for (int j = 0; j < vocabularySize; j++) {
 				double pro = (topicWordCount[i][j] + beta)
@@ -417,7 +430,10 @@ public class GibbsSamplingDMM_Inf_Single {
 		throws IOException
 	{
 		BufferedWriter writer = new BufferedWriter(new FileWriter(folderPath
-			+ expName + ".theta"));
+			+ expName + ".theta", true));
+
+		BufferedWriter writerTopicIdx = new BufferedWriter(new FileWriter(folderPath
+			+ expName + ".top1topic", true));
 
 		int i = dIndex;
 		int docSize = corpus.get(i).size();
@@ -431,9 +447,26 @@ public class GibbsSamplingDMM_Inf_Single {
 			}
 			sum += multiPros[tIndex];
 		}
+
 		for (int tIndex = 0; tIndex < numTopics; tIndex++) {
 			writer.write((multiPros[tIndex] / sum) + " ");
 		}
+
+		// find top1 topic index. There may be multiple top1 topics.
+		int top1topicIdx = 0;
+		for (int tIndex = 1; tIndex < numTopics; tIndex++) {
+			if (multiPros[tIndex] > multiPros[top1topicIdx]) {
+				top1topicIdx = tIndex;
+			}
+		}
+		for (int tIndex = 0; tIndex < numTopics; tIndex++) {
+			if (multiPros[tIndex] == multiPros[top1topicIdx]) {
+				writerTopicIdx.write(tIndex + " ");
+			}
+		}
+		writerTopicIdx.write("\n");
+		writerTopicIdx.close();
+
 		writer.write("\n");
 		writer.close();
 	}
@@ -515,14 +548,12 @@ public class GibbsSamplingDMM_Inf_Single {
 			}
 		}
 		
-		// modify log file prefix and write logs
-		expName = orgExpName + "doc-" + dIndex;
 		System.out.println("[document " + dIndex + "] Writing output from the last sample ...");
+
+		// recover log file prefix, and write result
+		expName = orgExpName;
 		write(dIndex);
 
-		// recover log file prefix
-		expName = orgExpName;
-		
 		// clean count
 		cleanSingleDocCount(dIndex);
 		System.out.println("[document " + dIndex + "] Sampling completed!");
@@ -540,8 +571,62 @@ public class GibbsSamplingDMM_Inf_Single {
 		{
 			inferenceSingleDoc(dIndex);
 		}
+		
+		writeInferenceIterationResult();
 	}
 
+	/**
+	 * Delete old log files.
+	 * 
+	 * MUST be called after following 2 variables have been initialized:
+	 * 1. folderPath
+	 * 2. expName
+	 */
+	private void cleanFiles() 
+	{
+		String[] logFileSuffixName = {
+				"phi", 
+				"topicAssignments",
+				"topWords",
+				"theta",
+				"top1topic",
+				"topicIteration",
+		};
+		
+		try {
+			for (int i = 0; i < logFileSuffixName.length; i++) {
+				File file =new File(folderPath + expName + "." + logFileSuffixName[i]);
+				if (file.exists()) {
+					FileWriter fileWriter = new FileWriter(file);
+					fileWriter.write("");
+					fileWriter.flush();
+					fileWriter.close();
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			// ignore
+		}
+	}
+	
+	/**
+	 * Write inference iteration result to file.
+	 */
+	private void writeInferenceIterationResult() throws IOException 
+	{
+		BufferedWriter writer = new BufferedWriter(new FileWriter(folderPath
+				+ expName + ".topicIteration", true));	
+		
+		for (int i = 0; i < inferenceIterationResult.size(); i++) {
+			for (int j = 0; j < inferenceIterationResult.get(i).size(); j++) {
+				writer.write(inferenceIterationResult + " ");
+			}
+			writer.write("\n");
+		}
+		
+		writer.close();
+	}
+	
 	
 	/**
 	 * Main function for test purpose
